@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, DatePicker, Drawer, Descriptions, Tag, Space, message } from 'antd';
+import dayjs from 'dayjs';
 import { mockApi } from './mockApi';
 import './List.less';
 
@@ -14,6 +15,11 @@ const List = () => {
   const [planList, setPlanList] = useState([]);
   const [dataSource, setDataSource] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [subTaskList, setSubTaskList] = useState([]);
+  const [isSubTaskModalOpen, setIsSubTaskModalOpen] = useState(false);
+  const [subTaskForm] = Form.useForm();
+  const [editingSubTask, setEditingSubTask] = useState(null);
+  const [messageApi, contextHolder] = message.useMessage();
 
   // 获取事务列表
   const fetchAffairs = async () => {
@@ -24,7 +30,7 @@ const List = () => {
         setDataSource(res.data);
       }
     } catch (error) {
-      message.error('获取数据失败');
+      messageApi.error('获取数据失败');
     }
     setLoading(false);
   };
@@ -53,13 +59,13 @@ const List = () => {
       });
 
       if (response.code === 200) {
-        message.success('创建成功');
+        messageApi.success('创建成功');
         fetchAffairs();
         form.resetFields();
         setIsModalOpen(false);
       }
     } catch (error) {
-      message.error('创建失败');
+      messageApi.error('创建失败');
     }
   };
 
@@ -67,13 +73,13 @@ const List = () => {
     try {
       const response = await mockApi.updateAffairStatus(record.key, '待总监审核');
       if (response.code === 200) {
-        message.success('提交成功');
+        messageApi.success('提交成功');
         await fetchAffairs();
         const updatedRecord = dataSource.find(item => item.key === record.key);
         setCurrentItem(updatedRecord);
       }
     } catch (error) {
-      message.error('提交失败');
+      messageApi.error('提交失败');
     }
   };
 
@@ -81,28 +87,89 @@ const List = () => {
     try {
       const response = await mockApi.updateAffairStatus(record.key, '已废弃');
       if (response.code === 200) {
-        message.success('已废弃');
+        messageApi.success('已废弃');
         await fetchAffairs();
         const updatedRecord = dataSource.find(item => item.key === record.key);
         setCurrentItem(updatedRecord);
       }
     } catch (error) {
-      message.error('操作失败');
+      messageApi.error('操作失败');
     }
   };
 
   const showDrawer = async (record) => {
     setCurrentItem(record);
     setIsDrawerOpen(true);
-    if (record.status !== '待提交') {
+    if (record.status === '待实施子任务') {
+      try {
+        const res = await mockApi.getSubTasksList(record.key);
+        if (res.code === 200) {
+          setSubTaskList(res.data);
+        }
+      } catch (error) {
+        messageApi.error('获取子任务列表失败');
+      }
+    } else if (record.status !== '待提交') {
       try {
         const res = await mockApi.getPlansList(record.key);
         if (res.code === 200) {
           setPlanList(res.data);
         }
       } catch (error) {
-        message.error('获取方案列表失败');
+        messageApi.error('获取方案列表失败');
       }
+    }
+  };
+
+  // 子任务相关函数
+  const showSubTaskModal = (record = null) => {
+    if (record) {
+      setEditingSubTask(record);
+      subTaskForm.setFieldsValue({
+        taskName: record.taskName,
+        taskManager: record.taskManager,
+        taskCollaborators: record.taskCollaborators,
+        status: record.status,
+        deadline: record.deadline ? dayjs(record.deadline) : undefined
+      });
+    }
+    setIsSubTaskModalOpen(true);
+  };
+
+  const handleSubTaskCancel = () => {
+    subTaskForm.resetFields();
+    setIsSubTaskModalOpen(false);
+    setEditingSubTask(null);
+  };
+
+  const handleSubTaskSubmit = async (values) => {
+    if (!currentItem) return;
+    
+    try {
+      const formattedValues = {
+        ...values,
+        deadline: values.deadline.format('YYYY-MM-DD'),
+        affairKey: currentItem.key
+      };
+
+      if (editingSubTask) {
+        await mockApi.updateSubTask(currentItem.key, editingSubTask.key, formattedValues);
+        messageApi.success('更新成功');
+      } else {
+        await mockApi.createSubTask(formattedValues);
+        messageApi.success('创建成功');
+      }
+      
+      const res = await mockApi.getSubTasksList(currentItem.key);
+      if (res.code === 200) {
+        setSubTaskList(res.data);
+      }
+      
+      subTaskForm.resetFields();
+      setIsSubTaskModalOpen(false);
+      setEditingSubTask(null);
+    } catch (error) {
+      messageApi.error('操作失败');
     }
   };
 
@@ -137,13 +204,13 @@ const List = () => {
           ...values,
           affairKey: currentItem.key
         });
-        message.success('更新成功');
+        messageApi.success('更新成功');
       } else {
         await mockApi.createPlan({
           ...values,
           affairKey: currentItem.key
         });
-        message.success('创建成功');
+        messageApi.success('创建成功');
       }
       const res = await mockApi.getPlansList(currentItem.key);
       if (res.code === 200) {
@@ -153,7 +220,7 @@ const List = () => {
       setIsPlanModalOpen(false);
       setEditingPlan(null);
     } catch (error) {
-      message.error('操作失败');
+      messageApi.error('操作失败');
     }
   };
 
@@ -238,6 +305,7 @@ const List = () => {
 
   return (
     <>
+    {contextHolder}
       <div className="kjsw-list">
         <div className="list-header">
           <h2>科技事务列表</h2>
@@ -346,12 +414,12 @@ const List = () => {
                     onClick={async () => {
                       try {
                         await mockApi.updateAffairStatus(currentItem.key, '待实施子任务');
-                        message.success('已通过');
+                        messageApi.success('已通过');
                         await fetchAffairs();
                         const updatedRecord = dataSource.find(item => item.key === currentItem.key);
                         setCurrentItem(updatedRecord);
                       } catch (error) {
-                        message.error('操作失败');
+                        messageApi.error('操作失败');
                       }
                     }}
                   >
@@ -362,16 +430,43 @@ const List = () => {
                     onClick={async () => {
                       try {
                         await mockApi.updateAffairStatus(currentItem.key, '待提交');
-                        message.success('已退回');
+                        messageApi.success('已退回');
                         await fetchAffairs();
                         const updatedRecord = dataSource.find(item => item.key === currentItem.key);
                         setCurrentItem(updatedRecord);
                       } catch (error) {
-                        message.error('操作失败');
+                        messageApi.error('操作失败');
                       }
                     }}
                   >
                     退回
+                  </Button>
+                </Space>
+              );
+            }
+            if (currentItem?.status === '待实施子任务') {
+              return (
+                <Space>
+                  <Button 
+                    type="primary" 
+                    onClick={async () => {
+                      try {
+                        const unfinishedTask = subTaskList.find(task => task.status !== '已完成');
+                        if (unfinishedTask) {
+                          messageApi.error('存在未完成子任务，请完成子任务实施');
+                          return;
+                        }
+                        await mockApi.updateAffairStatus(currentItem.key, '待验收');
+                        messageApi.success('已通过');
+                        await fetchAffairs();
+                        const updatedRecord = dataSource.find(item => item.key === currentItem.key);
+                        setCurrentItem(updatedRecord);
+                      } catch (error) {
+                        messageApi.error('操作失败');
+                      }
+                    }}
+                  >
+                    通过
                   </Button>
                 </Space>
               );
@@ -444,13 +539,13 @@ const List = () => {
                         onClick={async () => {
                           try {
                             await mockApi.deletePlan(currentItem.key, record.key);
-                            message.success('删除成功');
+                            messageApi.success('删除成功');
                             const res = await mockApi.getPlansList(currentItem.key);
                             if (res.code === 200) {
                               setPlanList(res.data);
                             }
                           } catch (error) {
-                            message.error('删除失败');
+                            messageApi.error('删除失败');
                           }
                         }}
                       >
@@ -461,6 +556,82 @@ const List = () => {
                 },
               ]}
               dataSource={planList}
+              pagination={false}
+            />
+          </div>
+        )}
+        {currentItem?.status === '待实施子任务' && (
+          <div style={{ marginTop: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0 }}>实施子任务列表</h3>
+              <Button type="primary" onClick={() => showSubTaskModal()}>新增子任务</Button>
+            </div>
+            <Table
+              size="small"
+              columns={[
+                {
+                  title: '任务名称',
+                  dataIndex: 'taskName',
+                  key: 'taskName',
+                },
+                {
+                  title: '负责人',
+                  dataIndex: 'taskManager',
+                  key: 'taskManager',
+                },
+                {
+                  title: '协办人',
+                  dataIndex: 'taskCollaborators',
+                  key: 'taskCollaborators',
+                  render: (collaborators) => collaborators?.join('、')
+                },
+                {
+                  title: '状态',
+                  dataIndex: 'status',
+                  key: 'status',
+                  render: (status) => (
+                    <Tag color={status === '进行中' ? 'processing' : status === '已完成' ? 'success' : 'default'}>
+                      {status}
+                    </Tag>
+                  )
+                },
+                {
+                  title: '截止时间',
+                  dataIndex: 'deadline',
+                  key: 'deadline',
+                },
+                {
+                  title: '操作',
+                  key: 'action',
+                  render: (_, record) => (
+                    <Space>
+                      <Button type="link" size="small" onClick={() => showSubTaskModal(record)}>
+                        编辑
+                      </Button>
+                      <Button 
+                        type="link" 
+                        size="small" 
+                        danger 
+                        onClick={async () => {
+                          try {
+                            await mockApi.deleteSubTask(currentItem.key, record.key);
+                            messageApi.success('删除成功');
+                            const res = await mockApi.getSubTasksList(currentItem.key);
+                            if (res.code === 200) {
+                              setSubTaskList(res.data);
+                            }
+                          } catch (error) {
+                            messageApi.error('删除失败');
+                          }
+                        }}
+                      >
+                        删除
+                      </Button>
+                    </Space>
+                  ),
+                },
+              ]}
+              dataSource={subTaskList}
               pagination={false}
             />
           </div>
@@ -496,6 +667,76 @@ const List = () => {
 
           <Form.Item className="form-actions">
             <Button type="default" onClick={handlePlanCancel} style={{ marginRight: 8 }}>
+              取消
+            </Button>
+            <Button type="primary" htmlType="submit">
+              提交
+            </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
+      <Modal
+        title={editingSubTask ? "编辑子任务" : "新建子任务"}
+        open={isSubTaskModalOpen}
+        onCancel={handleSubTaskCancel}
+        footer={null}
+        width={500}
+      >
+        <Form
+          form={subTaskForm}
+          layout="vertical"
+          onFinish={handleSubTaskSubmit}
+        >
+          <Form.Item
+            label="任务名称"
+            name="taskName"
+            rules={[{ required: true, message: '请输入任务名称' }]}
+          >
+            <Input placeholder="请输入任务名称" />
+          </Form.Item>
+
+          <Form.Item
+            label="负责人"
+            name="taskManager"
+            rules={[{ required: true, message: '请输入负责人' }]}
+          >
+            <Input placeholder="请输入负责人" />
+          </Form.Item>
+
+          <Form.Item
+            label="协办人"
+            name="taskCollaborators"
+            rules={[{ required: true, message: '请输入协办人' }]}
+          >
+            <Select 
+              mode="tags" 
+              placeholder="请输入协办人（可多选）"
+              tokenSeparators={[',']} 
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="状态"
+            name="status"
+            rules={[{ required: true, message: '请选择状态' }]}
+          >
+            <Select placeholder="请选择状态">
+              <Select.Option value="未开始">未开始</Select.Option>
+              <Select.Option value="进行中">进行中</Select.Option>
+              <Select.Option value="已完成">已完成</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            label="截止时间"
+            name="deadline"
+            rules={[{ required: true, message: '请选择截止时间' }]}
+          >
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+
+          <Form.Item className="form-actions">
+            <Button type="default" onClick={handleSubTaskCancel} style={{ marginRight: 8 }}>
               取消
             </Button>
             <Button type="primary" htmlType="submit">
